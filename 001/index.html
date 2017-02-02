@@ -1,0 +1,434 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section data-markdown data-separator="\n----\n" data-separator-vertical="\n--\n">
+        NodeJSを使ったハイブリッドスクレイピング #001
+
+        Feb 2, 2017
+
+        ARASHI, Jumpei
+
+        ----
+
+        Agenda
+
+        1. Final goal of this seminar
+        1. Installing NodeJS by nvm
+        1. Promiseとはなんぞや
+        1. new Promise()
+        1. Promise.resolve
+        1. Promise.then
+        1. Promise.reject
+        1. Promiseを使ったノンブロッキングフロー処理
+        1. Promise.catch
+        1. Promise.all
+        1. Promise.race
+        1. Promiseを使った並列処理
+
+        ----
+
+        このゼミの最終目標は
+
+        --
+
+        ブラウザインテグレーションとHTML取得の
+
+        ハイブリッドなスクレイピングを
+
+        並行処理できるようになっている
+
+        --
+
+        HTML取得だけのスクレイピングとは
+
+        --
+
+        ブラウザインテグレーションが必要なスクレイピングとは
+
+        ----
+
+        お決まりのNodeJSのインストールです
+
+        --
+
+        ```bash
+        $brew install nvm
+        $nvm install v6.9.5
+        $nvm use v6.9.5
+        $node --version
+        v6.9.5
+        ```
+
+        ----
+
+        What is `Promise`?
+
+        --
+
+        * ECMAScript 6の仕様
+        * もともとはBrowser javascript用のもの
+        * 非同期処理をわかりやすくしたもの
+        * コールバックを**極力**持ちいらずに非同期、並行処理が実装できる
+
+        --
+
+        Promiseなき時代のcallback
+
+        ```javascript
+        asyncFunction('dummy', function(error, result) {
+          if (error) {
+            console.error(error.message);
+            throw error;
+          }
+          console.log('done');
+          console.log('Reuslt:', result);
+        });
+        ```
+
+        --
+
+        * callbackを直接非同期関数の引数に渡すので見づらい
+        * callback自体が非同期関数の場合、さらにcallbackが渡される
+            + いわゆるcallback地獄
+        * 正常系と異常系の処理をひとつの関数に入れる必要がある
+
+        --
+
+        Promiseを使うと
+
+        --
+
+        * 正常系と異常系の処理を分けてかける
+        * 処理のフローが見やすい
+        * 比較的callbackのネストが浅くかける
+        * 宣言的にPromiseを扱える
+
+        ----
+
+        `new Promise()`
+
+        --
+
+        ```javascript
+        var promise = new Promise(function(resolve) {
+          resolve('Hello World!');
+        });
+        promise.then(function(result) {
+          console.log(result);
+        });
+        ```
+
+        ----
+
+        `Promise.resolve()`
+
+        --
+
+        ```javascript
+        function directlyResolve() {
+          return Promise.resolve(100);
+        }
+        return directlyResolve().then(function(result) {
+          console.log(result);
+        });
+        ```
+
+        ----
+
+        `Promise.reject()`
+
+        --
+
+        ```javascript
+        throw new Error('error message');
+        ```
+        みたいなもんだと思ってください。
+
+        --
+
+        ```javascript
+        var promise = new Promise(function(resolve, reject) {
+          reject(new Error('error'));
+          return;
+        });
+        promise.catch(function(error) {
+          console.error(error.message);
+        });
+        ```
+
+        ----
+
+        `Promise`を使ってエラーハンドリング
+
+        --
+
+        ```javascript
+        function asyncFunction(number) {
+          return new Promise(function(resolve, reject) {
+            if (number > 0) {
+              resolve(number);
+            } else {
+              reject(new Error('Invalid number'));
+              return;
+            }
+          });
+        }
+        asyncFunction(10).then(function(result) {
+          console.log('Given number: ', result);
+        }).catch(function(error) {
+          console.error(error.message);
+        });
+        ```
+
+        ----
+
+        `Promise`を用いた非同期処理(HTTP client編)
+
+        --
+
+        さぁ、ここからが本番ですよ!!
+
+        --
+
+        下準備
+        ```bash
+        # requestは一般的なHTTP Clientで、GET, POST, PUT, DELETE的な普通のHTTP Requestができます。
+        $ npm install request
+        ```
+
+        --
+
+        まずは普通にcallbackを使ってHTTP Requestしてみる
+        ```javascript
+        var request = require('request');
+        var params = {
+          url: 'https://github.com/'
+        };
+        request(params, function(error, response, body) {
+          if (error) {
+            throw error;
+          }
+          console.log('HTML body: ', body);
+        });
+        ```
+        --
+
+        `Promise`を使ってHTTP Requestしてみる
+
+        --
+
+        ```javascript
+        var request = require('request');
+        var params = {
+          url: 'https://github.com/'
+        };
+
+        function asyncRequest() {
+          return new Promise(function(resolve, reject) {
+            request(params, function(error, response, body) {
+              if (!error) { resovle(body) };
+              else { reject(error); }
+            });
+          });
+        }
+        return asyncRequest().then(function(result) {
+          // 何が出力されるでしょうか??
+          console.log(result);
+        }).catch(function(error) {
+          console.error(error.message);
+        });
+        ```
+
+        ----
+
+        Promiseを使ったフロー制御
+
+        --
+
+        ```javascript
+        function fn1() {
+          return new Promise(function(resolve, reject) {
+            console.log(1);
+          });
+        }
+        function fn2() {
+          return new Promise(function(resolve, reject) {
+            console.log(2);
+          });
+        }
+        return fn1().then(function() {
+          return fn2();
+        }).then(function() {
+          return fn1();
+        }).then(function() {
+          return fn2();
+        }).catch(function(error) {
+          console.error(error);
+        });
+        ```
+
+        ----
+
+        `Promise.all`
+
+        --
+
+        Promiseを返す関数の配列を受け取って、
+        
+        すべてのPromiseがresolveされた値を返す。
+
+        --
+
+        ```javascript
+        function fn1() {
+          return new Promise(function(resolve, reject) {
+            resolve(1);
+          });
+        }
+        function fn2() {
+          return new Promise(function(resolve, reject) {
+            resolve(2);
+          });
+        }
+        function main() {
+          return Promise.all([fn1(), fn2()]);
+        }
+   
+        main().then(function(values) {
+          console.log('All function is done');
+          console.log(values);
+        });
+        ```
+
+        ----
+
+        `Promise.race`
+
+        --
+
+        Promiseを返す関数の配列を受け取って、
+
+        **どれかひとつでも成功したら** その値を返す。
+
+        --
+
+        ```javascript
+        function fn1() {
+          return new Promise(function(resolve, reject) {
+            resolve(1);
+          });
+        }
+        function fn2() {
+          return new Promise(function(resolve, reject) {
+            resolve(2);
+          });
+        }
+        function main() {
+          return Promise.race([fn1(), fn2()]);
+        }
+   
+        main().then(function(value) {
+          console.log('All function is done');
+          console.log(value);
+        });
+        ```
+
+        ----
+
+        Promiseを使った並列処理
+
+        --
+
+        Promise.allを使って複数のサイトにHTTP Requestを投げてみます
+
+        ```javascript
+        var request = require('request');
+        function promisifiedRequest(targetUrl) {
+          return new Promise(function(resolve, reject) {
+            request({
+              url: targetUrl
+            }, function(error, response, body) {
+              if (!error) { resolve(body) };
+              else { reject(error); }
+            });
+          });
+        }
+
+        return Promise.all([
+          promisifiedRequest('http://github.com/'),
+          promisifiedRequest('https://kcw.kddi.ne.jp/')
+        ]).then(function(values) {
+          console.log('First: ', values[0]);
+          console.log('Second: ', values[1]);
+        }).catch(function(error) {
+          console.error(error.message);
+        });
+        ```
+
+        ----
+
+        まとめ
+
+        --
+
+        * PromiseはブラウザJS、NodeJSともに使えるユニバーサルなフロー制御機構
+        * もっと知りたい人は [azuさんのPromise本(web本)](http://azu.github.io/promises-book/)
+            + かなりｵｽｽﾒです。
+
+        ----
+
+        ### Fin
+
+        --
+
+        次回はHTMLをスクレイピングして、
+
+        chatworkにログインしてみるの回です
+
+
+        </section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				history: true,
+
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+		</script>
+	</body>
+</html>
