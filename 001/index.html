@@ -76,6 +76,7 @@
 
         ```bash
         $brew install nvm
+        $source ~/.nvm/nvm.sh
         $nvm install v6.9.5
         $nvm use v6.9.5
         $node --version
@@ -236,6 +237,11 @@
         ```
         --
 
+        ```bash
+        $ node ./YOUR_FILE.js
+        ```
+        --
+
         `Promise`を使ってHTTP Requestしてみる
 
         --
@@ -371,7 +377,7 @@
             request({
               url: targetUrl
             }, function(error, response, body) {
-              if (!error) { resolve(body) };
+              if (!error) { resolve(body); }
               else { reject(error); }
             });
           });
