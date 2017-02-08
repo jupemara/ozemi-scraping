@@ -1,0 +1,350 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section data-markdown data-separator="\n----\n" data-separator-vertical="\n--\n">
+        NodeJSを使ったハイブリッドスクレイピング #002
+
+        Feb 8, 2017
+
+        ARASHI, Jumpei
+
+        ----
+
+        Agenda
+
+        1. Final goal of this seminar
+        1. Installing NodeJS by nvm
+        1. HTTP Client with Promise
+        1. cheerio
+        1. request + cheerio
+        1. try POST request
+
+        ----
+
+        このゼミの最終目標は
+
+        --
+
+        ブラウザインテグレーションとHTML取得の
+
+        ハイブリッドなスクレイピングを
+
+        並行処理できるようになっている
+
+        ----
+
+        お決まりのNodeJSのインストールです
+
+        --
+
+        ```bash
+        $brew install nvm
+        $source ~/.nvm/nvm.sh
+        $nvm install v6.9.5
+        $nvm use v6.9.5
+        $node --version
+        v6.9.5
+        ```
+
+        ----
+
+        HTTP Client with Promise
+
+        --
+
+        下準備
+
+        --
+
+        ```bash
+        $npm install request
+        ```
+
+        --
+
+        それでは早速ですが
+
+        1. 任意のURLを指定できる
+        2. request結果のHTMLをPromiseで返す(.thenでアクセス)
+
+        ↑な関数を書いてみてましょう。
+
+        --
+
+        ヒント0
+        * [Promiseの教科書](azu.github.io/promises-book/#mocha-promise)
+        * [request(HTTP Clientモジュールの使い方)](https://github.com/request/request)
+
+        --
+
+        ヒント1
+
+        ```javascript
+        var request = require('request');
+        request('https://exmaple.com', function(err, res, body) {
+          if (err) {
+            console.error(err);
+          }
+          console.log(body);
+        });
+        ```
+
+        --
+
+        ヒント2
+
+        ```javascript
+        function asyncFunction(num) {
+          return new Promise(function(resolve, reject) {
+            if (typeof num === 'number') {
+              resolve(num);
+            } else {
+              reject(new Error(num + 'is not number!!'))
+            }
+          });
+        }
+        asyncFunction().then(function(v) {
+          console.log(v);
+        });
+        ```
+
+        --
+
+        ヒント3
+
+        ```javascript
+        function asyncRequest(url) {
+          return new Promise(function(resolve, reject) {
+            request(url, function(err, res, body) {
+              if (!err) { resolve(res); }
+              else { reject(err); }
+            });
+          })
+        }
+        ```
+
+        ----
+
+        ## [cheerio](https://github.com/cheeriojs/cheerio)
+
+        --
+
+        implementation of core jQuery designed specifically for the server.
+
+        --
+
+        下準備
+
+        --
+
+        ```bash
+        $npm install cheerio
+        ```
+
+        --
+
+        ```javascript
+        var cheerio = require('cheerio');
+        var content = '<html><body><div class="test-class">Hello Scraping!!</div></body></html>';
+        var $ = cheerio.load(content);
+        var str = $('.test-class').text();
+        console.log(str); //何が出力されるでしょうか??
+        ```
+
+        --
+
+        このテクニックを使えばだいたいwebサイトの欲しい情報は手に入るハズ。
+
+        ----
+
+        request + cheerio
+
+        --
+
+        ```
+        //先程作ったasyncRequestと組み合わせて
+        asyncRequest('http://ts.books.rakuten.co.jp/rb/14282915/')
+          .then(function(res) {
+            var $ = cheerio.load(res.body);
+            var str = $('[itemprop="name"]').text();
+            console.log(str);
+          });
+        ```
+
+        --
+
+        実際のページは[こちら](http://ts.books.rakuten.co.jp/rb/14282915/)
+
+        ----
+
+        ChatWorkにログインしてみる
+
+        --
+
+        requestの応用編
+
+        --
+
+        ```javascript
+        var requestModule = require('request');
+        // Please see https://github.com/request/request#requestdefaultsoptions
+        var request = requestModule.defaults({
+          // defaultで永続的クッキーを使う設定
+          jar: requstModule.jar(),
+          timeout: 1000 * 10
+        });
+
+        function asyncFunction(option) {
+          return new Promise(resolve, reject) {
+            request(option, function(err, res, body) {
+              if (!err) { resolve(res); }
+              else { reject(err); }
+            });
+          }
+        }
+
+        asyncFunction({url: https://exmaple.com}).then(function(res) {
+          console.log(res.body);
+        });
+        ```
+
+        --
+
+        ```javascript
+        var option = {
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_EMAIL',
+            'password': 'YOUR_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }
+        asyncFunction(option).then(function(res) {
+          console.log(res.statusCode);
+          console.log(res.body);
+        });
+        ```
+
+        ----
+
+        ただしこれでは302で実際のbodyが取得できない...
+
+        --
+
+        Promiseのchainを使ってHTTP Requestの流れをchainしてみましょう
+
+        --
+
+        ```javascript
+        var option = {
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_EMAIL',
+            'password': 'YOUR_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }
+        asyncFunction(option).then(function(res) {
+          var location = res.headers['location'];
+          console.log('Location header: ', location);
+          return location;
+        }).then(function(location) {
+          return asyncFunction({
+            url: location
+          });
+        }).then(function(res) {
+          console.log('マイチャット: ', res.body);
+        });
+        ```
+
+        --
+
+        ```javascript
+        var option = {
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_EMAIL',
+            'password': 'YOUR_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }
+        asyncFunction(option).then(function(res) {
+          var location = res.headers['location'];
+          console.log('Location header: ', location);
+          return location;
+        }).then(function(location) {
+          return asyncFunction({
+            url: location
+          });
+        }).then(function(res) {
+          var $ = cheerio.load(res.body);
+          var str = $('.cheatsheetShortcutBody').text();
+          console.log(str);
+        });
+        ```
+
+        ----
+
+        # FIN
+
+        --
+
+        次回はcheerio応用編と
+        
+        cheerioとnightmare、夢のコラボレーション
+        
+        です!
+
+
+        </section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				history: true,
+
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+		</script>
+	</body>
+</html>
