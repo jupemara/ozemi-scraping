@@ -1,0 +1,370 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section data-markdown data-separator="\n----\n" data-separator-vertical="\n--\n">
+        NodeJSを使ったハイブリッドスクレイピング #003
+
+        Feb 8, 2017
+
+        ARASHI, Jumpei
+
+        ----
+
+        Agenda
+
+        1. Going over
+        1. Nightmare Cookie API
+        1. Writing Nightmare Cookie
+        1. Dummmy UserAgent -request-
+        1. Dummmy UserAgent -nightmare-
+        1. Connecting Request Cookie with Nightmare
+        1. Chatwork hack(来週に持ち越すかも、時間的に)
+
+        ----
+
+        このゼミの最終目標は
+
+        --
+
+        ブラウザインテグレーションとHTML取得の
+
+        ハイブリッドなスクレイピングを
+
+        並行処理できるようになっている
+
+        ----
+
+        お決まりのNodeJSのインストールです
+
+        --
+
+        ```bash
+        $brew install nvm
+        $source ~/.nvm/nvm.sh
+        $nvm install v6.9.5
+        $nvm use v6.9.5
+        $node --version
+        v6.9.5
+        ```
+
+        --
+
+        下準備、必要なモジュールをinstallしておきましょう
+
+        ```bash
+        $npm install nightmare request
+        ```
+
+        ----
+
+        おさらい -Chatworkにログインしてみましょう-
+
+        --
+
+        ```javascript
+        var request = require('request');
+        var defaultRequest = request.defaults({
+          jar: request.jar()
+        });
+        
+        function promisifiedRequest(options) {
+          return new Promise(function(resolve, reject) {
+            defaultRequest(options, function(error, response, body) {
+              if (!error) { resolve(response); }
+              else { reject(error); }
+            });
+          });
+        }
+        
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_CHATWORK_EMAIL',
+            'password': 'YOUR_CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          console.log('Location Header: ', response.headers['location']);
+        });
+        ```
+
+        ----
+
+        まずはrequestのcookieの中身を見てみましょう
+
+        --
+
+        ```javascript
+        var request = require('request');
+        var jar = request.jar();
+        var defaultRequest = request.defaults({
+          jar: jar
+        });
+        
+        function promisifiedRequest(options) {
+          return new Promise(function(resolve, reject) {
+            defaultRequest(options, function(error, response, body) {
+              if (!error) { resolve(response); }
+              else { reject(error); }
+            });
+          });
+        }
+        
+        promisifiedRequest({
+          url: 'https://www.google.co.jp',
+        }).then(function(response) {
+          console.log('Request Style Cookie: ', JSON.stringify(jar, null, 2));
+        });
+        ```
+
+        --
+
+        こんなふうにgoogleのcookieが取得できるはず
+
+        ```javascript
+        {
+          "_jar": {
+            "version": "tough-cookie@2.2.2",
+            "storeType": "MemoryCookieStore",
+            "rejectPublicSuffixes": true,
+            "cookies": [
+              {
+                "key": "NID",
+                "value": "97=ib4_Fj3kAtnID22joFcY8ZYlClrOLi4sT2JTWgbBBtXRV-cqNrT3XWrCNRHiaRmzM6mHpLAJtYCw_5ceFwEtBlsgtNDM26q20h1pU4wLe-8gLpXJtnOxEYxZxvbKDTMP",
+                "expires": "2017-08-18T07:19:12.000Z",
+                "domain": "google.co.jp",
+                "path": "/",
+                "httpOnly": true,
+                "hostOnly": false,
+                "creation": "2017-02-16T07:19:11.810Z",
+                "lastAccessed": "2017-02-16T07:19:11.810Z"
+              }
+            ]
+          }
+        }
+        ```
+
+        ----
+
+        [Nightmare Cookie API](https://github.com/segmentio/nightmare#cookies)
+
+        --
+
+        っということはCookieを変換する仕組みが必要ですね??
+
+        --
+
+        書いてみましょうか
+
+        --
+
+        ```javascript
+        function convertToNightmareStyleCookie(requestStyleCookie) {
+          // domainを文字列の配列で受け取る
+          var domains = Object.keys(requestStyleCookie['_jar']['store']['idx']);
+          var nightmareStyleCookie = [];
+          domains.forEach(function(domain) {
+            var url = 'https://' + domain;
+            // key(domain)ごとに複数のクッキーを持っていることがあるので、cookieごとに処理を行う
+            requestStyleCookie.getCookies(url).forEach(function(cookie) {
+              nightmareStyleCookie.push({
+                url: url,
+                name: cookie.key,
+                value: cookie.value,
+                path: cookie.path,
+                secure: cookie.secure
+              });
+            });
+          });
+          console.log('Nightmare Style Cookie: ', JSON.stringify(nightmareStyleCookie, null, 2));
+          return nightmareStyleCookie;
+        }
+        ```
+
+        ----
+
+        さて、これでrequest -> nightmareのcookie変換ができました
+
+        --
+
+        Nightmareにこれを組み込んでみましょう
+
+        --
+
+        ヒント1 Nightmareにクッキーを突っ込む
+
+        ```javascript
+        var nightmare = requrie('nightmare');
+        new nightmare({
+          show: true
+        }).cookies.set(NightmareStyleCookie)
+          .goto('https://exmaple.com')
+          .wait(5000);
+        ```
+
+        --
+
+        ヒント2: requestからcookieを抜き出す
+
+        これはさっきやりましたね??
+
+        --
+
+        こたえ
+
+        ```javascript
+        var request = require('request');
+        var Nightmare = require('nightmare');
+        var jar = request.jar();
+        var defaultRequest = request.defaults({
+          jar: jar
+        });
+        
+        function promisifiedRequest(options) {
+          return new Promise(function(resolve, reject) {
+            defaultRequest(options, function(error, response, body) {
+              if (!error) { resolve(response); }
+              else { reject(error); }
+            });
+          });
+        }
+        
+        function convertToNightmareStyleCookie(requestStyleCookie) {
+          var domains = Object.keys(requestStyleCookie['_jar']['store']['idx']);
+          var nightmareStyleCookie = [];
+          domains.forEach(function(domain) {
+            var url = 'https://' + domain;
+            requestStyleCookie.getCookies(url).forEach(function(cookie) {
+              nightmareStyleCookie.push({
+                url: url,
+                name: cookie.key,
+                value: cookie.value,
+                path: cookie.path,
+                secure: cookie.secure
+              });
+            });
+          });
+          console.log('Nightmare Style Cookie: ', JSON.stringify(nightmareStyleCookie, null, 2));
+          return nightmareStyleCookie;
+        }
+        
+        promisifiedRequest({
+          url: 'https://www.google.co.jp'
+        }).then(function(response) {
+          return convertToNightmareStyleCookie(jar);
+        }).then(function(nightmareStyleCookie) {
+          var nightmare = new Nightmare({
+            show: true
+          });
+          return nightmare
+            .cookies.set(nightmareStyleCookie)
+            .goto('https://google.com')
+            .wait(5000)
+            .end();
+        });
+        ```
+
+        --
+
+        ```bash
+        $DEBUG=nightmare* node app.js
+        ```
+
+        ----
+
+        Dummy UserAgent -request-
+
+        --
+
+        ```javascript
+        var request = require('request');
+        var defaultRequest = request.defaults({
+          heasders: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.95 Safari/537.36'
+          }
+        });
+        ```
+
+        --
+
+        これだけでデフォルトのUAを変更できます(request header書き換えてるだけですが...)
+
+        ----
+
+        Dummy UserAgent -nightmare-
+
+        --
+
+        ```javascript
+        var nightmare = require('nightmare');
+        new nightmare({
+          show: true
+        }).useragent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.95 Safari/537.36')
+        ```
+
+        ----
+
+        # FIN
+
+        --
+
+        これで偽装する材料は揃いましたね!!
+
+        次回は今までの技術を総動員して、
+        
+        1. chatworkにログインして
+        1. cookieぶっこ抜いて
+        1. ぶっこ抜いたcookieをねじ込んで
+        1. ブラウザからコンテンツを見る
+
+        です!
+
+
+        </section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				history: true,
+
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+		</script>
+	</body>
+</html>
