@@ -1,0 +1,403 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section data-markdown data-separator="\n----\n" data-separator-vertical="\n--\n">
+        NodeJSを使ったハイブリッドスクレイピング #004 (Final)
+
+        Feb 23, 2017
+
+        ARASHI, Jumpei
+
+        ----
+
+        Agenda
+
+        1. Going over
+        1. Nightmare Cookie API
+        1. Hybrid Scraping
+            * Login to Chatwork
+            * Injection Chatwork Cookie
+            * Browsing Chatwork
+            * Scraping Chat Messages
+
+        ----
+
+        このゼミの最終目標は
+
+        --
+
+        ブラウザインテグレーションとHTML取得の
+
+        ハイブリッドなスクレイピングを
+
+        並行処理できるようになっている
+
+        ----
+
+        お決まりのNodeJSのインストールです
+
+        --
+
+        今週はNodeJSのv6.10.0がリリースされたので
+
+        upgradeしておきましょう
+
+        --
+
+        ```bash
+        $brew install nvm
+        $source ~/.nvm/nvm.sh
+        $nvm install v6.10.0
+        $nvm use v6.10.0
+        $node --version
+        v6.10.0
+        ```
+
+        --
+
+        下準備、必要なモジュールをinstallしておきましょう
+
+        ```bash
+        $npm install nightmare request cheerio
+        ```
+
+        ----
+
+        ハイブリッド スクレイピング
+
+        --
+
+        1. チャットワークにログインする
+        2. ログインしたクッキーをNightmareにねじ込む
+        3. ブラウザからHTMLを返す
+        4. bodyの中身をscrapingしてmessageだけを取り出す
+
+        ----
+
+        1. チャットワークにログインする
+
+        ```javascript
+        var requestModule = require('request');
+        var jar = requestModule.jar();
+        var request = requestModule.defaults({
+          jar: jar
+        });
+
+        function promisifiedRequest(option) {
+          return new Promise(resolve, reject) {
+            request(option, function(err, res, body) {
+              if (!err) { resolve(res); }
+              else { reject(err); }
+            });
+          }
+        }
+
+        //ログインしてcookieを書き込ませる
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_CHATWORK_EMAIL',
+            'password': 'YOUR_CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          var location = response.headers['location'];
+          return location;
+        }).then(function(location) {
+          console.log('Location header: ', location);
+        });
+        ```
+
+        --
+
+        2. 取得したCookieをInjectする
+
+        ```javascript
+        // ..snip..
+        var request = requestModule.defaults({
+          jar: jar
+        });
+
+        var Nightmare = require('nightmare');
+        var nightmare = new Nightmare({
+          show: true,
+          webPreferences: {
+            //Cookieを毎回新規に作成させる
+            partition: String(new Date().getTime())
+          }
+        });
+
+        // ..snip..
+
+        function convertToNightmareStyleCookie(requestStyleCookie) {
+          // domainを文字列の配列で受け取る
+          var domains = Object.keys(requestStyleCookie['_jar']['store']['idx']);
+          var nightmareStyleCookie = [];
+          domains.forEach(function(domain) {
+            var url = 'https://' + domain;
+            // key(domain)ごとに複数のクッキーを持っていることがあるので、cookieごとに処理を行う
+            requestStyleCookie.getCookies(url).forEach(function(cookie) {
+              nightmareStyleCookie.push({
+                url: url,
+                name: cookie.key,
+                value: cookie.value,
+                path: cookie.path,
+                secure: cookie.secure
+              });
+            });
+          });
+          return nightmareStyleCookie;
+        }
+
+        //ログインしてcookieを書き込ませる
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_CHATWORK_EMAIL',
+            'password': 'YOUR_CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          var location = response.headers['location'];
+          return location;
+        }).then(function(location) {
+          var nightmareStyleCookie = convertToNightmareStyleCookie(jar);
+          return nightmare
+            .cookies.set(nightmareStyleCookie)
+            .goto(location)
+            .wait('#_roomTitle')
+            .wait(5000)
+            .end()
+        });
+        ```
+
+        --
+
+        3. Nightmare側からBodyの中身を返す
+
+        --
+
+        ```javascript
+        // ..snip..
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_CHATWORK_EMAIL',
+            'password': 'YOUR_CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          var location = response.headers['location'];
+          return location;
+        }).then(function(location) {
+          var nightmareStyleCookie = convertToNightmareStyleCookie(jar);
+          return nightmare
+            .cookies.set(nightmareStyleCookie)
+            .goto(location)
+            .wait('#_roomTitle')
+            .wait(5000)
+            .evaluate(function() {
+              return window.document.body.innerHTML;
+            })
+            .end()
+        }).then(function(body) {
+          console.log(body);
+        });
+        ```
+
+        --
+
+        4. Bodyからmessageだけを取り出す
+
+        --
+
+        ```javascript
+        // ..snip..
+
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'YOUR_CHATWORK_EMAIL',
+            'password': 'YOUR_CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          var location = response.headers['location'];
+          return location;
+        }).then(function(location) {
+          var nightmareStyleCookie = convertToNightmareStyleCookie(jar);
+          return nightmare
+            .cookies.set(nightmareStyleCookie)
+            .goto(location)
+            .wait('#_roomTitle')
+            .wait(5000)
+            .evaluate(function() {
+              return window.document.body.innerHTML;
+            })
+            .end()
+        }).then(function(body) {
+          var $ = cheerio.load(body);
+          var messages = [];
+          $('._chatTimeLineMessageBox pre').each(function(i, element) {
+            messages.push($(element).text());
+          });
+          return messages;
+        }).then(function(messages) {
+          console.log(JSON.stringify(messages, null, 2));
+        });
+        ```
+
+        --
+
+        全部つなげたものがこちら
+
+        --
+
+        ```javascript
+        var requestModule = require('request');
+        var jar = requestModule.jar();
+        var request = requestModule.defaults({
+          jar: jar
+        });
+        
+        var Nightmare = require('nightmare');
+        var nightmare = new Nightmare({
+          show: true,
+          webPreferences: {
+            //Cookieを毎回新規に作成させる
+            partition: String(new Date().getTime())
+          }
+        });
+        
+        var cheerio = require('cheerio');
+        
+        function promisifiedRequest(option) {
+          return new Promise(function(resolve, reject) {
+            request(option, function(err, res, body) {
+              if (!err) { resolve(res); }
+              else { reject(err); }
+            });
+          });
+        }
+        
+        function convertToNightmareStyleCookie(requestStyleCookie) {
+          // domainを文字列の配列で受け取る
+          var domains = Object.keys(requestStyleCookie['_jar']['store']['idx']);
+          var nightmareStyleCookie = [];
+          domains.forEach(function(domain) {
+            var url = 'https://' + domain;
+            // key(domain)ごとに複数のクッキーを持っていることがあるので、cookieごとに処理を行う
+            requestStyleCookie.getCookies(url).forEach(function(cookie) {
+              nightmareStyleCookie.push({
+                url: url,
+                name: cookie.key,
+                value: cookie.value,
+                path: cookie.path,
+                secure: cookie.secure
+              });
+            });
+          });
+          return nightmareStyleCookie;
+        }
+        
+        //ログインしてcookieを書き込ませる
+        promisifiedRequest({
+          method: 'POST',
+          url: 'https://kcw.kddi.ne.jp/login.php?args=',
+          form: {
+            'email': 'CHATWORK_LOGIN_EMAIL',
+            'password': 'CHATWORK_PASSWORD',
+            'auto_login': 'on',
+            'login': 'ログイン'
+          }
+        }).then(function(response) {
+          var location = response.headers['location'];
+          return location;
+        }).then(function(location) {
+          var nightmareStyleCookie = convertToNightmareStyleCookie(jar);
+          return nightmare
+            .cookies.set(nightmareStyleCookie)
+            .goto(location)
+            .wait('#_roomTitle')
+            .wait(5000)
+            .evaluate(function() {
+              return window.document.body.innerHTML;
+            })
+            .end()
+        }).then(function(body) {
+          var $ = cheerio.load(body);
+          var messages = [];
+          $('._chatTimeLineMessageBox pre').each(function(i, element) {
+            messages.push($(element).text());
+          });
+          return messages;
+        }).then(function(messages) {
+          console.log(JSON.stringify(messages, null, 2));
+        });
+        ```
+
+        ----
+
+        # FIN
+
+        --
+
+        これでなんでもwebからぶっこ抜くことができるようになりましたね！
+
+        1ヶ月お疲れ様でした!!
+
+
+        </section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				history: true,
+
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+		</script>
+	</body>
+</html>
